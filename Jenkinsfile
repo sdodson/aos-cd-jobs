@@ -45,12 +45,15 @@ while ( true ) {
             last_action_day = 0
         }
     } catch (err) {
+        // Assume timeout. The following actual code won't work without whitelisting.
+        /*
         def user = err.getCauses()[0].getUser()
         if('SYSTEM' == user.toString()) { // SYSTEM means timeout.
             didTimeout = true
         } else {
             throw err
         }
+        */
     }
 
     def todayFields = getCurrentDateFields()
