@@ -1,13 +1,11 @@
 
-properties(
-    [
-        [
-            $class: 'BuildDiscarderProperty',
-            strategy: [$class: 'LogRotator', numToKeepStr: '60']
-        ],
-        pipelineTriggers([cron('0 6 * * *')]), /* daily at 6am */
-    ]
-)
+properties [
+    [$class: 'BuildDiscarderProperty', strategy: [$class: 'LogRotator', artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '', numToKeepStr: '60']],
+    disableConcurrentBuilds(),
+    [$class: 'HudsonNotificationProperty', enabled: false],
+    [$class: 'RebuildSettings', autoRebuild: false, rebuildDisabled: false],
+    [$class: 'ThrottleJobProperty', categories: [], limitOneJobWithMatchingParams: false, maxConcurrentPerNode: 0, maxConcurrentTotal: 0, paramsToUseForLimit: '', throttleEnabled: false, throttleOption: 'project'],
+    pipelineTriggers([[$class: 'TimerTrigger', spec: '0 6 * * *']])]
 
 build job: '../aos-cd-builds/build%2Fose',
     parameters: [   [$class: 'StringParameterValue', name: 'OSE_MAJOR', value: '3'],
