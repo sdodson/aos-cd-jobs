@@ -1,7 +1,5 @@
-sshkey_dev_preview_int = "dev-preview-int"
-sshkey_dev_preview_stg = "test-key"
-sshkey_dev_preview_prod = "test-key"
 
+last_build_day = 0
 last_action_day = 0
 year=getCurrentYear()
 
@@ -18,6 +16,8 @@ config = input(
                 [$class: 'hudson.model.StringParameterDefinition', defaultValue: "00/00/${year}", description: 'Date of upgrade for dev-preview-prod (usually first Monday of \'next\' sprint); This process will not be performed without user input.', name: 'prod_upgrade'],
                 [$class: 'hudson.model.StringParameterDefinition', defaultValue: 'aos-devel@redhat.com, aos-qe@redhat.com', description: 'Success Mailing List', name: 'MAIL_LIST_SUCCESS'],
                 [$class: 'hudson.model.StringParameterDefinition', defaultValue: 'jupierce@redhat.com,tdawson@redhat.com,smunilla@redhat.com,mwoodson@redhat.com,chmurphy@redhat.com', description: 'Failure Mailing List', name: 'MAIL_LIST_FAILURE'],
+                [$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Force immediate action (do not wait for disruption hour)?.', name: 'force'],
+                [$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Run in test mode?', name: 'test_mode'],
         ]
 )
 
@@ -31,35 +31,67 @@ splitDate(config.int_upgrades_stop)
 splitDate(config.stg_upgrades_start)
 splitDate(config.stg_upgrades_stop)
 splitDate(config.prod_upgrade)
+force = config.force
+
+// Setting test_mode to true will emulate time moving by one hour every 30 seconds.
+// Builds and deployments will not actually take place.
+test_mode = config.test_mode
+
+test_mode_date = getCurrentDateFields(false)
+
+if ( test_mode ) {
+    sshkey_dev_preview_int = "test-key"
+    sshkey_dev_preview_stg = "test-key"
+    sshkey_dev_preview_prod = "test-key"
+} else {
+    sshkey_dev_preview_int = "dev-preview-int"
+    sshkey_dev_preview_stg = "test-key"
+    sshkey_dev_preview_prod = "test-key"
+}
+
 
 
 while ( true ) {
 
-    echo "  Waiting 30 minutes before next check..."
-
-    def force = false
-    try {
-        timeout( time: 30, unit: 'MINUTES' ) {
-            input message: 'Next assessment will occur in 30 minutes. Forcing action will ignore the disruption window and perform deployment checks immediately.', ok: 'Force Action'
-            force = true
-            last_action_day = 0
-        }
-    } catch (err) {
-        // Assume timeout. The following actual code won't work without whitelisting.
-        /*
-        def user = err.getCauses()[0].getUser()
-        if('SYSTEM' == user.toString()) { // SYSTEM means timeout.
-            didTimeout = true
-        } else {
-            throw err
-        }
-        */
+    if ( !test_mode ) {
+        echo "  Waiting 30 minutes before next check..."
+    } else {
+        echo "  RUNNING IN TEST MODE. 30 minute timeout will actually expire in 30 seconds. Every 30 seconds will increment emulated clock by 1 hour."
     }
 
-    def todayFields = getCurrentDateFields()
+    if ( !force ) {
+        sleep( time: 30, unit: (test_mode?'SECONDS':'MINUTES') )
+    }
+
+    def todayFields = getCurrentDateFields(test_mode)
+
+    phase = "daily OCP build"
+
+    if ( last_build_day != getDayOfYear() ) {
+        if ( todayFields[3] == 6 || force ) { // Build at 6am every day unless being forced
+            while ( true ) {
+                try {
+                    stage( "${phase} openshift/ose build" ) {
+                        runOSEBuild()
+                    }
+                    break
+                } catch ( e ) {
+                    error_notify("${phase}", "${e}" )
+                    def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Bypass the build attempt today?.', name: 'skip_build']]
+                    if ( response.skip_build.toBoolean() ) {
+                        echo "Daily build is being skipped"
+                        break
+                    }
+                }
+            }
+
+        }
+    }
+
 
     if ( force ) {
         echo "    User has requested immediate action. Ignoring disruption window."
+        force = false
     } else if ( todayFields[3] != 16 ) {
         echo "    It is not currently 16:00h. No deployments will be initiated."
         continue
@@ -69,16 +101,14 @@ while ( true ) {
     phase = "dev-preview-int/create"
     if ( isToday( phase, todayFields, config.int_recreate ) ) {
 
-        def skip_build = false
+        def rebuild = false
         while ( true ) {
 
             try {
-                if ( !skip_build ) {
+                if ( rebuild ) {
                     stage( "${phase} openshift/ose build" ) {
                         runOSEBuild()
                     }
-                } else {
-                    echo "\n\nBUILD SKIPPED BY USER\n\n"
                 }
 
                 stage( "${phase} - Tearing down" ) {
@@ -98,8 +128,8 @@ while ( true ) {
                 break
             } catch ( e ) {
                 error_notify("${phase}", "${e}" )
-                def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'If you want to skip the build when retrying the operations.', name: 'skip_build']]
-                skip_build = response.skip_build
+                def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Force rebuild before retrying phase?.', name: 'rebuild']]
+                rebuild = response.rebuild.toBoolean()
             }
         }
     }
@@ -108,17 +138,14 @@ while ( true ) {
     phase = "dev-preview-int/upgrades"
     if ( isTodayBetween( phase, todayFields, config.int_upgrades_start, config.int_upgrades_stop ) ) {
 
-        def skip_build = false
+        def rebuild = false
         while ( true ) {
 
-
             try {
-                if ( !skip_build ) {
+                if ( rebuild ) {
                     stage( "${phase} openshift/ose build" ) {
                         runOSEBuild()
                     }
-                } else {
-                    echo "\n\nBUILD SKIPPED BY USER\n\n"
                 }
 
                 stage( "${phase} - Upgrading" ) {
@@ -134,8 +161,8 @@ while ( true ) {
                 break
             } catch ( e ) {
                 error_notify("${phase}", "${e}" )
-                def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'If you want to skip the build when retrying the operations.', name: 'skip_build']]
-                skip_build = response.skip_build
+                def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Force rebuild before retrying phase?', name: 'rebuild']]
+                rebuild = response.rebuild.toBoolean()
             }
         }
 
@@ -146,17 +173,15 @@ while ( true ) {
     phase = "dev-preview-stg/upgrades"
     if ( isTodayBetween( phase, todayFields, config.stg_upgrades_start, config.stg_upgrades_stop ) ) {
 
-        def skip_build = false
+        def rebuild = false
         while ( true ) {
 
 
             try {
-                if ( !skip_build ) {
+                if ( rebuild ) {
                     stage( "${phase} openshift/ose build" ) {
                         runOSEBuild()
                     }
-                } else {
-                    echo "\n\nBUILD SKIPPED BY USER\n\n"
                 }
 
                 stage( "${phase} - Upgrading" ) {
@@ -172,8 +197,8 @@ while ( true ) {
                 break
             } catch ( e ) {
                 error_notify("${phase}", "${e}" )
-                def response = input message: "Error: ${e}\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'If you want to skip the build when retrying the operations.', name: 'skip_build']]
-                skip_build = response.skip_build
+                def response = input message: "Error: ${e}\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Force rebuild before retrying phase?', name: 'rebuild']]
+                rebuild = response.rebuild
             }
         }
 
@@ -230,14 +255,34 @@ def splitDate( date ) {
     return fields
 }
 
-def getCurrentDateFields() {
+def getCurrentDateFields( test_mode ) {
     Calendar c = Calendar.getInstance()
     def fields = [
             c.get(Calendar.MONTH)+1,
             c.get(Calendar.DAY_OF_MONTH),
             c.get(Calendar.YEAR),
-            c.get(Calendar.HOUR_OF_DAY)
+            c.get(Calendar.HOUR_OF_DAY),
+            c.get(Calendar.MINUTE),
+            c.get(Calendar.DAY_OF_YEAR)
     ]
+    if ( test_mode ) {
+        test_mode_date[3]++
+        if ( test_mode_date[3] == 24 ) {
+            test_mode_date[3] = 0
+            test_mode_date[1]++
+            test_mode_date[5]++ // inc day of year
+            if ( test_mode_date[1] == 32 ) {
+                test_mode_date[1] = 1
+                test_mode_date[0]++
+                if ( test_mode_date[0] == 13 ) {
+                    test_mode_date[0] = 1
+                    test_mode_date[2]++
+                }
+            }
+        }
+        echo "Returning emulated time: ${fieldsToString(test_mode_date)}"
+        return test_mode_date
+    }
     return fields
 }
 
@@ -266,7 +311,7 @@ def isToday( phase, currentDateFields, testDateString ) {
 }
 
 def fieldsToString( dateFields ) {
-    return "${dateFields[0]}/${dateFields[1]}/${dateFields[2]}"
+    return "${dateFields[0]}/${dateFields[1]}/${dateFields[2]}(${dateFields[3]}:${dateFields[4]})"
 }
 
 def isTodayOrBeyond( phase, currentDateFields, testDateString ) {
@@ -313,21 +358,32 @@ def runTowerOperation( sshKeyId, operation ) {
 
 def runOSEBuild() {
     try {
-        build job: '../aos-cd-builds/build%2Fose',
-            parameters: [   [$class: 'StringParameterValue', name: 'OSE_MAJOR', value: '3'],
-                            [$class: 'StringParameterValue', name: 'OSE_MINOR', value: '5'],
-                        ]
+        last_build_day = getDayOfYear()
+        if ( test_mode ) {
+            echo "    ***Build would be triggered now if not in test mode***"
+        } else {
+            build job: '../aos-cd-builds/build%2Fose',
+                parameters: [   [$class: 'StringParameterValue', name: 'OSE_MAJOR', value: '3'],
+                                [$class: 'StringParameterValue', name: 'OSE_MINOR', value: '5'],
+                            ]
+        }
     } catch ( err ) {
         error "Error running openshift/ose build: ${err}"
     }
 }
 
 def getDayOfYear() {
-    return Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+    return getCurrentDateFields(test_mode)[5]
 }
 
 def status_notify(subject,msg) {
     echo "\n\n\nStaus: ${subject} ; Sending email:\n ${msg}\n\n\n"
+
+    if ( test_mode ) {
+        echo "    ***Email would have been sent if not in test mode***"
+        return
+    }
+
     mail(
             to: "${config.MAIL_LIST_SUCCESS}",
             replyTo: 'jpierce@redhat.com',
@@ -341,6 +397,11 @@ Jenkins job: ${env.BUILD_URL}
 
 def error_notify(subject,msg) {
     echo "\n\n\nError: ${subject} ; Sending email:\n ${msg}\n\n\n"
+
+    if ( test_mode ) {
+        echo "    ***Email would have been sent if not in test mode***"
+        return
+    }
 
     mail(
             to: "${config.MAIL_LIST_FAILURE}",
