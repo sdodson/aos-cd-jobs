@@ -1,5 +1,4 @@
 
-last_build_day = 0
 last_action_day = 0
 year=getCurrentYear()
 
@@ -55,45 +54,23 @@ while ( true ) {
 
     if ( !test_mode ) {
         echo "  Waiting 30 minutes before next check..."
+
+        if ( !force ) {
+            sleep( time: 30, unit: 'MINUTES' )
+        }
+
     } else {
-        echo "  RUNNING IN TEST MODE. 30 minute timeout will actually expire in 30 seconds. Every 30 seconds will increment emulated clock by 1 hour."
+        echo "  RUNNING IN TEST MODE. 30 minute timeout is being bypassed and emulated clock is being increased by 1 hour. "
     }
 
-    if ( !force ) {
-        sleep( time: 30, unit: (test_mode?'SECONDS':'MINUTES') )
-    }
 
     def todayFields = getCurrentDateFields(test_mode)
-
-    phase = "daily OCP build"
-
-    if ( last_build_day != getDayOfYear() ) {
-        if ( todayFields[3] == 6 || force ) { // Build at 6am every day unless being forced
-            while ( true ) {
-                try {
-                    stage( "${phase} openshift/ose build" ) {
-                        runOSEBuild()
-                    }
-                    break
-                } catch ( e ) {
-                    error_notify("${phase}", "${e}" )
-                    def response = input message: "Error: ${e}\\nRetry ${phase} or abort?", ok: 'Retry', parameters: [[$class: 'BooleanParameterDefinition', defaultValue: false, description: 'Bypass the build attempt today?.', name: 'skip_build']]
-                    if ( response.skip_build.toBoolean() ) {
-                        echo "Daily build is being skipped"
-                        break
-                    }
-                }
-            }
-
-        }
-    }
-
 
     if ( force ) {
         echo "    User has requested immediate action. Ignoring disruption window."
         force = false
-    } else if ( todayFields[3] != 16 ) {
-        echo "    It is not currently 16:00h. No deployments will be initiated."
+    } else if ( todayFields[3] != 18 ) {
+        echo "    It is not currently 18:00h. No deployments will be initiated."
         continue
     }
 
@@ -358,7 +335,6 @@ def runTowerOperation( sshKeyId, operation ) {
 
 def runOSEBuild() {
     try {
-        last_build_day = getDayOfYear()
         if ( test_mode ) {
             echo "    ***Build would be triggered now if not in test mode***"
         } else {
