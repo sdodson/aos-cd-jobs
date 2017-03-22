@@ -1,1 +1,1 @@
-Builds which run every M, W, F.
+Builds which run every T, TH.
