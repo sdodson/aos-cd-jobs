@@ -1,1 +1,1 @@
-Runs OCP build v3.5 every day at 6am.
+Builds which run every M, W, F.
