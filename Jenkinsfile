@@ -5,9 +5,9 @@ properties( [
     [$class: 'HudsonNotificationProperty', enabled: false],
     [$class: 'RebuildSettings', autoRebuild: false, rebuildDisabled: false],
     [$class: 'ThrottleJobProperty', categories: [], limitOneJobWithMatchingParams: false, maxConcurrentPerNode: 0, maxConcurrentTotal: 0, paramsToUseForLimit: '', throttleEnabled: false, throttleOption: 'project'],
-    pipelineTriggers([[$class: 'TimerTrigger', spec: '0 6 * * *']])] )
+    pipelineTriggers([[$class: 'TimerTrigger', spec: '0 2 * * 1,3,5']])] )
 
 build job: '../aos-cd-builds/build%2Fose',
     parameters: [   [$class: 'StringParameterValue', name: 'OSE_MAJOR', value: '3'],
-                    [$class: 'StringParameterValue', name: 'OSE_MINOR', value: '6'],
+                    [$class: 'StringParameterValue', name: 'OSE_MINOR', value: '5'],
                 ]
