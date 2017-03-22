@@ -1,1 +1,1 @@
-Runs OCP build v3.5 every day at 6am.
+Runs OCP build of ose/master every day.
