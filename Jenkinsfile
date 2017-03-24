@@ -16,7 +16,7 @@ def mail_success() {
     mail(
         to: "${MAIL_LIST_SUCCESS}",
         replyTo: 'tdawson@redhat.com',
-        subject: "Images have been refreshed",
+        subject: "Images have been refreshed: ${OSE_MAJOR}.${OSE_MINOR} ${OSE_GROUP}",
         body: """\
 Jenkins job: ${env.BUILD_URL}
 ${OSE_MAJOR}.${OSE_MINOR}, Group:${OSE_GROUP}, Repo:${OSE_REPO}
@@ -59,6 +59,7 @@ node('buildvm-devops') {
 
             sshagent(['openshift-bot']) { // merge-and-build must run with the permissions of openshift-bot to succeed
                 sh "ose_images.sh --user ocp-build update_docker --bump_release --force --branch rhaos-${OSE_MAJOR}.${OSE_MINOR}-rhel-7 --group ${OSE_GROUP}"
+                sh "ose_images.sh --user ocp-build build --branch rhaos-${OSE_MAJOR}.${OSE_MINOR}-rhel-7 --group ${OSE_GROUP} --repo ${OSE_REPO}"
             }
 
             // Replace flow control with: https://jenkins.io/blog/2016/12/19/declarative-pipeline-beta/ when available
