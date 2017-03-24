@@ -58,7 +58,7 @@ node('buildvm-devops') {
             env.PATH = "${pwd()}/build-scripts/:${env.PATH}"
 
             sshagent(['openshift-bot']) { // merge-and-build must run with the permissions of openshift-bot to succeed
-                sh "ose_images.sh update_docker --bump_release --force --branch rhaos-${OSE_MAJOR}.${OSE_MINOR}-rhel-7 --group ${OSE_GROUP}"
+                sh "ose_images.sh --user ocp-build update_docker --bump_release --force --branch rhaos-${OSE_MAJOR}.${OSE_MINOR}-rhel-7 --group ${OSE_GROUP}"
             }
 
             // Replace flow control with: https://jenkins.io/blog/2016/12/19/declarative-pipeline-beta/ when available
