@@ -8,7 +8,36 @@ extensions:
         rsync --copy-links --omit-dir-times --archive --rsh "ssh -F ./.config/origin-ci-tool/inventory/.ssh_config" /var/lib/jenkins/.gce/* openshiftdevel:/data/src/github.com/openshift/release/cluster/test-deploy/${CLUSTER_PROFILE}/
         ssh -F ./.config/origin-ci-tool/inventory/.ssh_config openshiftdevel 'sudo chown -R origin:origin-git /data/src/github.com/openshift/release/cluster/test-deploy/${CLUSTER_PROFILE}/'
         ssh -F ./.config/origin-ci-tool/inventory/.ssh_config openshiftdevel 'sudo chmod -R ug+rwX /data/src/github.com/openshift/release/cluster/test-deploy/${CLUSTER_PROFILE}/'
+    - type: "script"
+      title: "turn off unnecessary RPM repos"
+      timeout: 300
+      script: |-
+        sudo yum-config-manager --disable centos-paas-sig-openshift-origin\*-rpms
+        sudo yum-config-manager --disable origin-deps-rhel7\* || true
+        sudo yum-config-manager --disable rhel-7-server-ose\* || true
 
+        branch="${PULL_BASE_REF:-"master"}"
+        case "${branch}" in
+          master )
+            # 3.10
+            major=3
+            minor=10
+            ;;
+          release-* )
+            major="$( echo "${branch}" | grep -Po "(?<=release-)[0-9](?=\.[0-9])" )"
+            minor="$( echo "${branch}" | grep -Po "(?<=release-[0-9]\.)[0-9]" )"
+            ;;
+          enterprise-* )
+            major="$( echo "${branch}" | grep -Po "(?<=release-)[0-9](?=\.[0-9])" )"
+            minor="$( echo "${branch}" | grep -Po "(?<=release-[0-9]\.)[0-9]" )"
+            ;;
+        esac
+        previous="$(( minor -1))"
+        sudo yum-config-manager --enable "rhel-7-server-ose-${major}.${minor}-rpms"
+        if [[ "${JOB_NAME}" == *update* ]]; then
+          sudo yum-config-manager --enable "rhel-7-server-ose-${major}.${previous}-rpms"
+        fi
+        sudo yum repolist
     - type: "script"
       title: "provision test cluster"
       repository: "release"
